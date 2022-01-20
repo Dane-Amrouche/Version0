@@ -72,7 +72,7 @@ class Node():
                 self.nodeID = msg["args"]["id_requested"]
                 self.nodePred = (msg["args"]["ip_port_adress_previous"]["IP"],msg["args"]["ip_port_adress_previous"]["port"],msg["args"]["ip_port_adress_previous"]["idNode"])
                 self.nodeSucc = (msg["args"]["ip_port_adress_resp"]["IP"],msg["args"]["ip_port_adress_resp"]["port"],msg["args"]["ip_port_adress_resp"]["idNode"])
-                self.nodeData = (msg["args"]["data"]["b1"],msg["args"]["data"]["b2"],msg["args"]["data"]["keys"])
+                self.nodeData = (msg["args"]["data"]["borne1"],msg["args"]["data"]["borne2"],msg["args"]["data"]["keys"])
                 #send to predecessor to change his successor           
                 send_CMD = {
                     "cmd":"update_table", 
@@ -117,23 +117,23 @@ class Node():
         #self.listen()               
     
     #function is_betwwen to know if a node id is between two nodes
-    def is_between(self, nodeID, borne1, borne2):
-        if borne1 <= borne2:
-            if (nodeID >= borne1 and nodeID <= borne2) : 
+    def is_between(self, nodeID, node1, node2):
+        if node1 <= node2:
+            if (nodeID >= node1 and nodeID <= node2) : 
                 return True
             else :  
                 return False
-        elif borne1 == borne2:
+        elif node1 == node2:
             return False
         else :
-            if (nodeID >= borne1) or (nodeID <= borne2): 
+            if (nodeID >= node1) or (nodeID <= node2): 
                 return True
             else :
                 return False
 
     # on receiving a join request
     # if key < nodeID i am the responsible ==> send accept
-    # elqsif key == succ key ==> reject
+    # elsif key == succ key ==> reject
     # else forward to succ 
     def on_join(self,CMD):
 
@@ -148,7 +148,7 @@ class Node():
             self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
             self.NB_OTHERS +=1 # statistics
 
-        elif self.is_between(CMD["args"]["host"]["idNode"], self.nodePred[2], self.nodeID) or (self.nodeID==self.nodePred[2]):
+        elif self.is_between(CMD["args"]["host"]["idNode"], self.nodePred[2], self.nodeID) or (self.nodeID==self.nodePred[2]):# ca reste a confirmer 
             send_CMD = {  
                 "cmd" : ACCEPT, 
                 "args" : { 
@@ -160,8 +160,8 @@ class Node():
                     },
                     #in self.nodeData is (born1, born2, {data from born1 to borns2}) so we take data from born1 to id_requested
                     "data": {
-                        "b1": self.nodeData[0],
-                        "b2": CMD["args"]["host"]["idNode"],
+                        "borne1": self.nodeData[0],
+                        "borne2": CMD["args"]["host"]["idNode"],
                         "keys": dict( (key, value) for (key, value) in self.nodeData[2].items() if key <= CMD["args"]["host"]["idNode"] )
                     }, 
                     "ip_port_adress_previous": {
@@ -204,7 +204,7 @@ class Node():
             print("error while connecting to node"+ str(exc))
             
 
-    # wait the answer from responsible node
+    # Attendre la rep du noeud responsable 
     def wait_cmd(self):
         try:
             # wait to receive an anwser
@@ -216,7 +216,7 @@ class Node():
             msg = conn.recv(self.BUFFER_SIZE)
             conn.close()
             server.close()
-            print(" receivedfrom: ",addr,"---------------------")
+            print(" received from: ",addr,"---------------------")
             print(msg.decode(FORMAT))
             print(" ---------------------------------")
             return json.loads(msg)
