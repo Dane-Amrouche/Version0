@@ -6,41 +6,43 @@ import threading
 import time
 import random
 
-# params
+
 FORMAT = 'utf-8'
-# the commands list
-JOIN =       "join"
-ACCEPT =     "accept"
-REJECT =     "reject"
-PROTOCOL_ACK =         "ack"
-PROTOCOL_GET =         "get"
-PROTOCOL_ANSWER =      "answer"
-PROTOCOL_PUT =         "put"
-PROTOCOL_UPDATE =      "update_table"
-PROTOCOL_STATS =       "stats"
-PROTOCOL_PRINT =       "print"
+
+# Liste des commande 
+JOIN =    "join"
+ACCEPT =  "accept"
+REJECT =  "reject"
+ACK =     "ack"
+GET =     "get"
+PUT =     "put"
+UPDATE =  "update_table"
+ANSWER =  "answer"
+STATS =   "stats"
+PRINT =    "print"
 
 class Node():
 
     # Node attributes 
-    nodeIP_adress  = "127.0.0.1"  # @ip of the node instance 
-    nodePort  = None  # port of the node instance 
-    nodeID     = None  # id of the node instance 
-    nodeData = None  # dict ofdata of nodes which it's responsible for
-    nodePred =  None  # the node's predecessor
-    nodeSucc =  None  # the node's successor
+    nodeIP_adress  = "127.0.0.1" 
+    nodePort  = None  
+    nodeID     = None 
+    nodeData = None  # donnee du noeud resp
+    nodePred =  None  # noeud pred 
+    nodeSucc =  None  # noeud succ
 
     # attributes for the protocole
-    MAX_NODE = None  # max number of node
-    BUFFER_SIZE = None  # the buffer size used in sockets communication
+    MAX_NODE = None  
+    BUFFER_SIZE = None  # taille du buffer utilise dans les communication sockets 
 
-    # statistics attributes
-    NB_GET = 0 # number of get msgs sent
-    NB_PUT = 0 # number of put msgs sent
-    NB_OTHERS = 0 # number of other msgs sent
+    # variable globales pour les statistiques 
+    NB_JOIN = 0 
+    NB_GET = 0 
+    NB_PUT = 0 
 
-    # Node initialization
-    def __init__(self,dynamic,nodeID, nodeIP_adress ,nodePort, knownNode=None, max_node=256, BUFFER_SIZE = 65565):
+
+    # initialisation
+    def __init__(self,notFirst,nodeID, nodeIP_adress ,nodePort, knownNode=None, max_node=65536, BUFFER_SIZE = 65565):
         
         # attributes initialisation
         self.nodeIP_adress = nodeIP_adress
@@ -48,10 +50,10 @@ class Node():
         self.MAX_NODE = max_node
         self.BUFFER_SIZE = BUFFER_SIZE
        
-        if dynamic:
-            # get a nodeID, first pick a random ID
+        if notFirst:
+            # recuperer l'id du noeud, dans notre cas ca sera le num du port 
             id = nodeID
-            # send the join command to the know node
+            # envoi de la commande join sous le format Json
             CMD = { 
                 "cmd": JOIN,
                 "args":{
@@ -63,31 +65,37 @@ class Node():
                 }
             }
             self.send_cmd(knownNode,CMD)
-            self.NB_OTHERS +=1 # statistics
-            # wait the answer
+            self.NB_JOIN +=1 # statistics
+
+            # attendre la reponse du noeud permettant l'acceptation ou le rejet de l'insertion
             msg = self.wait_cmd()
             print(msg["cmd"])
+
             if msg["cmd"]==ACCEPT :
-                # complete the node insertion and search for pred and succ on the format(ip,port,id)
-                self.nodeID = msg["args"]["id_requested"]
-                self.nodePred = (msg["args"]["ip_port_adress_previous"]["IP"],msg["args"]["ip_port_adress_previous"]["port"],msg["args"]["ip_port_adress_previous"]["idNode"])
-                self.nodeSucc = (msg["args"]["ip_port_adress_resp"]["IP"],msg["args"]["ip_port_adress_resp"]["port"],msg["args"]["ip_port_adress_resp"]["idNode"])
+                
+                #completer l'insertion du nœud et rechercher le pred et succ en format (ip, port, id)
+                # le predNew Node  est le pred du resp 
+                # le succNew Node est le noeud resp de la cle 
+                # NewNode sera responsable des cles pred+1 jusqu'a self.IdNode(entre deux bornes(borne 1 et borne 2))   
+                self.nodeID = msg["args"]["id_requested"] # le noeud qui a demander l'insertion
+                self.nodePred = (msg["args"]["info_previous_node"]["IP"],msg["args"]["info_previous_node"]["port"],msg["args"]["info_previous_node"]["idNode"])
+                self.nodeSucc = (msg["args"]["info_resp_node"]["IP"],msg["args"]["info_resp_node"]["port"],msg["args"]["info_resp_node"]["idNode"])
                 self.nodeData = (msg["args"]["data"]["borne1"],msg["args"]["data"]["borne2"],msg["args"]["data"]["keys"])
-                #send to predecessor to change his successor           
+
+                # la commande a envoyer au pred pour changer son succ           
                 send_CMD = {
                     "cmd":"update_table", 
                     "args":{
                         "src":{
                             "IP": self.nodeIP_adress, 
                             "port": self.nodePort, 
-                            "idNode":self.nodeID
-                        }, 
-                        "id_lower": -1, 
-                        "amount": -1
+                            "idNode":self.nodeID % self.MAX_NODE
+                        }
                     }
                 }
+                # envoyer un update pour le pred pour mettre a jour son succ qui sera le nouveau noeud inserer.
                 self.send_cmd((self.nodePred[0], self.nodePred[1]),send_CMD)
-                self.NB_OTHERS +=1 # statistics
+                self.NB_JOIN +=1 # statistics
                 #start listennig on a thread
                 print("my data",self.nodeData)
                 self.listen()
@@ -132,9 +140,9 @@ class Node():
                 return False
 
     # on receiving a join request
-    # if key < nodeID i am the responsible ==> send accept
-    # elsif key == succ key ==> reject
-    # else forward to succ 
+    # if key == succ or key == pred or key == self.NodeId ==> reject
+    # else if key < nodeID je suis le reponsable, si key n'esxite pas ==> send accept
+    # else transmettre au succ 
     def on_join(self,CMD):
 
         if CMD["args"]["host"]["idNode"] == self.nodeSucc[2] or CMD["args"]["host"]["idNode"] == self.nodePred[2] or CMD["args"]["host"]["idNode"] == self.nodeID:
@@ -144,16 +152,16 @@ class Node():
                     "key": CMD["args"]["host"]["idNode"]
                 }
             }
-            # send it the node trying to get inserted
+            # envoyer le rejet au noeud voulant s'inserer
             self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
-            self.NB_OTHERS +=1 # statistics
+            self.NB_JOIN +=1 # statistics
 
-        elif self.is_between(CMD["args"]["host"]["idNode"], self.nodePred[2], self.nodeID) or (self.nodeID==self.nodePred[2]):# ca reste a confirmer 
+        elif self.is_between(CMD["args"]["host"]["idNode"], self.nodePred[2], self.nodeID) or (self.nodeID==self.nodePred[2]):
             send_CMD = {  
                 "cmd" : ACCEPT, 
                 "args" : { 
                     "id_requested": CMD["args"]["host"]["idNode"], 
-                    "ip_port_adress_resp" : {
+                    "info_resp_node" : { # celui la va devenir sson succ
                         "IP": self.nodeIP_adress,
                         "port":self.nodePort,
                         "idNode": self.nodeID
@@ -164,18 +172,20 @@ class Node():
                         "borne2": CMD["args"]["host"]["idNode"],
                         "keys": dict( (key, value) for (key, value) in self.nodeData[2].items() if key <= CMD["args"]["host"]["idNode"] )
                     }, 
-                    "ip_port_adress_previous": {
+                    "info_previous_node": {   # mon pred va devenir son pred 
                         "IP": self.nodePred[0],
                         "port":self.nodePred[1],
                         "idNode": self.nodePred[2]
                     }
                 }
             }
-            # send it the node trying to get inserted
+            # envoyer toutes les infos au noeud inserer 
             self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
-            self.NB_OTHERS +=1 # statistics
-            # change predecessor and delete the nodes that it is not responsible anymore
+            self.NB_JOIN +=1 # statistics
+            # changer de prédécesseur et supprimer les nœuds dont il n'est plus responsable
+            # mon pred va devenir le nouveau noeud insere 
             self.nodePred = (CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"],CMD["args"]["host"]["idNode"])
+            # pour mes data, je serai resp des cles NewNode+1 jusqu'a moi meme  
             self.nodeData = (CMD["args"]["host"]["idNode"]+1 ,self.nodeData[1], dict( (key, value) for (key, value) in self.nodeData[2].items() if key > CMD["args"]["host"]["idNode"]))      
             if self.nodeSucc[2]== self.nodeID:
                 self.nodeSucc = (CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"],CMD["args"]["host"]["idNode"])
@@ -183,7 +193,7 @@ class Node():
         else:
             # forward cmd to the successor
             self.send_cmd(self.nodeSucc[0:2],CMD)
-            self.NB_OTHERS +=1 # statistics
+            self.NB_JOIN +=1 # statistics
 
     # send a msg to a node
     def send_cmd(self,node,CMD):
@@ -227,7 +237,7 @@ class Node():
     def GET_CMD(self,Dest):
         # get cmd
         CMD = { 
-            "cmd": PROTOCOL_GET,
+            "cmd": GET,
             "args":{
                 "host":{ 
                     "IP": self.nodeIP_adress,
@@ -246,7 +256,7 @@ class Node():
             # I am the responsible so find the value in my data and send it to the dest node
             print("i am responsible for this node")
             send_CMD = { 
-                "cmd": PROTOCOL_ANSWER,
+                "cmd": ANSWER,
                 "args" : {
                      "key" : CMD["args"]["key"],
                      "value" : self.nodeData[2][CMD["args"]["key"]] if  CMD["args"]["key"] in self.nodeData[2].keys() else 0,
@@ -265,7 +275,7 @@ class Node():
     def PUT_CMD(self, Dest, Val):
         # get cmd
         CMD = { 
-            "cmd": PROTOCOL_PUT,
+            "cmd": PUT,
             "args":{
                 "host":{ 
                     "IP": self.nodeIP_adress,
@@ -286,7 +296,7 @@ class Node():
             # I am the responsible so find the value in my data and change it
             self.nodeData[2][CMD["args"]["key"]] = CMD["args"]["value"]
             send_CMD = { 
-                "cmd": PROTOCOL_ACK,
+                "cmd": ACK,
                 "args" : {
                      "id": CMD["args"]["id"]
                 }
@@ -309,7 +319,7 @@ class Node():
                 }, 
                 "nb_get": self.NB_GET, 
                 "nb_put": self.NB_PUT, 
-                "nb_others": self.NB_OTHERS
+                "NB_JOIN": self.NB_JOIN
             }
         }
         self.send_cmd(self.nodePred[0:2],CMD)
@@ -322,49 +332,50 @@ class Node():
         print("-----------------------------------")
         if msg["cmd"] == JOIN:
             self.on_join(msg)
-        elif  msg["cmd"] == PROTOCOL_GET:
+        elif  msg["cmd"] == GET:
             self.on_get(msg)
-        elif msg["cmd"] == PROTOCOL_ANSWER:
+        elif msg["cmd"] == ANSWER:
             if msg["args"]["val_exists"]:
                 print("received value : " + str(msg["args"]["value"]))
             else:
                 print("data does not exist")
-        elif msg["cmd"] == PROTOCOL_PUT:
+        elif msg["cmd"] == PUT:
             self.on_put(msg)
-        elif msg["cmd"] == PROTOCOL_ACK:
+        elif msg["cmd"] == ACK:
             #chek if the same identif then delete it fromwait queue
             # self.puts_sent.remove(msg["args"]["id"])²
             print("put msg with id "+ str(msg["args"]["id"])+" is successufly received")
-        elif msg["cmd"] == PROTOCOL_UPDATE:
+        elif msg["cmd"] == UPDATE:
             # in the cercle version we only change the predecessor
+            # une fois le noeud est inserer , je met a jour la TV de mon predecesseur,
             self.nodeSucc = (msg["args"]["src"]["IP"], msg["args"]["src"]["port"], msg["args"]["src"]["idNode"])
-        elif msg["cmd"] == PROTOCOL_STATS:
+        elif msg["cmd"] == STATS:
             #if stats returns to the node that send the stats cmd the print results
             if self.nodeID == msg["args"]["source"]["idNode"]:
                 print("statistics :")
                 print("nomber of gets : "+ str(msg["args"]["nb_get"]))
                 print("nomber of puts : "+ str(msg["args"]["nb_put"]))
-                print("nomber of others : "+ str(msg["args"]["nb_others"]))
+                print("nomber of others : "+ str(msg["args"]["NB_JOIN"]))
             else:
                 msg["args"]["nb_get"] += self.NB_GET 
                 msg["args"]["nb_put"] += self.NB_PUT 
-                msg["args"]["nb_others"] += self.NB_OTHERS
+                msg["args"]["NB_JOIN"] += self.NB_JOIN
                 self.send_cmd((self.nodePred[0:2]),msg)
 
-        elif msg["cmd"] == PROTOCOL_PRINT:
+        elif msg["cmd"] == PRINT:
             print("node info : "+ str(self.nodeIP_adress)+" "+ str(self.nodePort)+" "+ str(self.nodeID))
             print("node prec : "+ str(self.nodePred))
             print("node succ : "+ str(self.nodeSucc))
             print("nodes keys that the node have from "+str(self.nodeData[0])+ " to "+str(self.nodeData[1]))
             print("data list : "+ str(self.nodeData[2]))
 
-        elif msg["cmd"] == "send_"+PROTOCOL_GET:
+        elif msg["cmd"] == "send_"+GET:
             self.GET_CMD(msg["args"]["key"])
 
-        elif msg["cmd"] == "send_"+PROTOCOL_PUT:
+        elif msg["cmd"] == "send_"+PUT:
             self.PUT_CMD(msg["args"]["key-data"],msg["args"]["value"])
 
-        elif msg["cmd"] == "send_"+ PROTOCOL_STATS:
+        elif msg["cmd"] == "send_"+ STATS:
             self.get_stats()
 
         else:
