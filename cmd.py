@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 import json
 import socket
 import random
@@ -11,10 +10,11 @@ import node
 
 '''
 Code partageable: 
-./cmd.py get <key_data> <ip> <port>
-./cmd.py put <key_data> <value> <ip> <port>
+./cmd.py get <key> <ip> <port>
+./cmd.py put <key> <value> <ip> <port>
 ./cmd.py print <ip> <port>
 ./cmd.py stats <ip> <port>
+
 '''
 
 FORMAT = 'utf-8'
@@ -32,7 +32,7 @@ if sys.argv[1]=="get":
         }
     }
     # the node to send data to
-    known_node = (sys.argv[3],int(sys.argv[4]))
+    lambda_node = (sys.argv[3],int(sys.argv[4]))
 
 elif sys.argv[1]=="put":
     CMD = { 
@@ -47,7 +47,7 @@ elif sys.argv[1]=="put":
         }
     }
     # the node to send data to
-    known_node = (sys.argv[4],int(sys.argv[5])) 
+    lambda_node = (sys.argv[4],int(sys.argv[5])) 
 
 elif sys.argv[1]=="stats":
     CMD = {
@@ -60,14 +60,14 @@ elif sys.argv[1]=="stats":
         }
     }   
     # the node to send data to
-    known_node = (sys.argv[2],int(sys.argv[3])) 
+    lambda_node = (sys.argv[2],int(sys.argv[3])) 
 
 elif sys.argv[1]=="print":
     CMD = { 
         "cmd": node.PRINT
     } 
     # the node to send data to
-    known_node = (sys.argv[2],int(sys.argv[3])) 
+    lambda_node = (sys.argv[2],int(sys.argv[3])) 
 else:
     print("INVALID COMMAND")
     exit() 
@@ -78,7 +78,7 @@ try:
     conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
     conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     conn.bind(("127.0.0.1",55555))      
-    conn.connect(known_node)
+    conn.connect(lambda_node)
     print(json.dumps(CMD))
     # send the cmd to the node
     conn.send(json.dumps(CMD).encode(FORMAT))

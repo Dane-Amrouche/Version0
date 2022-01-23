@@ -64,7 +64,7 @@ class Node():
                     }
                 }
             }
-            self.send_cmd(knownNode,CMD)
+            self.Send_Command(knownNode,CMD)
             self.NB_JOIN +=1 # statistics
 
             # attendre la reponse du noeud permettant l'acceptation ou le rejet de l'insertion
@@ -94,7 +94,7 @@ class Node():
                     }
                 }
                 # envoyer un update pour le pred pour mettre a jour son succ qui sera le nouveau noeud inserer.
-                self.send_cmd((self.nodePred[0], self.nodePred[1]),send_CMD)
+                self.Send_Command((self.nodePred[0], self.nodePred[1]),send_CMD)
                 self.NB_JOIN +=1 # statistics
                 #start listennig on a thread
                 print("my data",self.nodeData)
@@ -121,27 +121,10 @@ class Node():
         thread = threading.Thread(target=self.handle_Node, args=(conn,addr))
         thread.start()
         conn.close()
-        server.close()
-        #self.listen()               
-    
-    #function is_betwwen to know if a node id is between two nodes
-    def is_between(self, nodeID, node1, node2):
-        if node1 <= node2:
-            if (nodeID >= node1 and nodeID <= node2) : 
-                return True
-            else :  
-                return False
-        elif node1 == node2:
-            return False
-        else :
-            if (nodeID >= node1) or (nodeID <= node2): 
-                return True
-            else :
-                return False
-
-    # on receiving a join request
-    # if key == succ or key == pred or key == self.NodeId ==> reject
-    # else if key < nodeID je suis le reponsable, si key n'esxite pas ==> send accept
+      
+    # a la reception d'un join 
+    # si key == succ or key == pred or key == self.NodeId ==> reject
+    # else si key < nodeID je suis le reponsable, si key n'esxite pas ==> send accept
     # else transmettre au succ 
     def on_join(self,CMD):
 
@@ -153,7 +136,7 @@ class Node():
                 }
             }
             # envoyer le rejet au noeud voulant s'inserer
-            self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
+            self.Send_Command((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
             self.NB_JOIN +=1 # statistics
 
         elif self.is_between(CMD["args"]["host"]["idNode"], self.nodePred[2], self.nodeID) or (self.nodeID==self.nodePred[2]):
@@ -161,7 +144,7 @@ class Node():
                 "cmd" : ACCEPT, 
                 "args" : { 
                     "id_requested": CMD["args"]["host"]["idNode"], 
-                    "info_resp_node" : { # celui la va devenir sson succ
+                    "info_resp_node" : { # celui la va devenir son succ
                         "IP": self.nodeIP_adress,
                         "port":self.nodePort,
                         "idNode": self.nodeID
@@ -180,7 +163,7 @@ class Node():
                 }
             }
             # envoyer toutes les infos au noeud inserer 
-            self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
+            self.Send_Command((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
             self.NB_JOIN +=1 # statistics
             # changer de prédécesseur et supprimer les nœuds dont il n'est plus responsable
             # mon pred va devenir le nouveau noeud insere 
@@ -191,27 +174,44 @@ class Node():
                 self.nodeSucc = (CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"],CMD["args"]["host"]["idNode"])
 
         else:
-            # forward cmd to the successor
-            self.send_cmd(self.nodeSucc[0:2],CMD)
+            # transmettre au succ
+            self.Send_Command(self.nodeSucc[0:2],CMD)
             self.NB_JOIN +=1 # statistics
 
-    # send a msg to a node
-    def send_cmd(self,node,CMD):
+
+    
+    #fonction is_betwwen pour savoir si le noeud est situe entre deux bornes 
+    def is_between(self, nodeID, node1, node2):
+        if node1 <= node2:
+            if (nodeID >= node1 and nodeID <= node2) : 
+                return True
+            else :  
+                return False
+        elif node1 == node2:
+            return False
+        else :
+            if (nodeID >= node1) or (nodeID <= node2): 
+                return True
+            else :
+                return False
+
+   
+    # foct pour envoyer des cmd aux noeuds 
+    def Send_Command(self,node,CMD):
         try:
-            # make communiction with the node
+            # établir la communication avec le nœud
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
             conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             conn.bind((self.nodeIP_adress,self.nodePort))      
             conn.connect(node)
-            print(" sent to :",node," ------------------------")
+            print(" sent to :",node,"--------------------")
             print(json.dumps(CMD))
-            print(" ------------------------")
-             # send the cmd to the node
+            print(" --------------------------------------- ")
+             # envoyer cmd au noeud 
             conn.send(json.dumps(CMD).encode(FORMAT))
             conn.close()
         except (socket.error) as exc:
-            # error while connecting
-            print("error while connecting to node"+ str(exc))
+            print(" erreur lors de la connexion au nœud "+ str(exc))
             
 
     # Attendre la rep du noeud responsable 
@@ -232,7 +232,7 @@ class Node():
             return json.loads(msg)
         except socket.error as exc:
             # error with server init
-            print("error while connecting to node"+ str(exc))
+            print("erreur lors de la connexion au nœud "+ str(exc))
     
     def GET_CMD(self,Dest):
         # get cmd
@@ -249,25 +249,29 @@ class Node():
         }
         self.on_get(CMD)
 
-    # the node will try to get the value of Dest node
+#Demande des données du nœud avec la clé (key) et fournit son adresse (ip/port) pour la réponse.
     def on_get(self, CMD):
-        # check if i am the responsible
+        # vérifier si je suis le responsable
         if self.is_between(CMD["args"]["key"],self.nodePred[2]+1, self.nodeID):
-            # I am the responsible so find the value in my data and send it to the dest node
-            print("i am responsible for this node")
+            print("je suis le responsable de ce noeud")
+            # je suis le resp du noeud, je rep a la requete
+            #Réponse à un get. Le noeud responsable répond directement à celui qui avait demandé
+            #en lui redonnant la clé (key) des valeurs demandées ainsi que les valeurs (val) ou None s’il n’y a pas de valeurs pour cette clé. 
+            
             send_CMD = { 
                 "cmd": ANSWER,
                 "args" : {
                      "key" : CMD["args"]["key"],
-                     "value" : self.nodeData[2][CMD["args"]["key"]] if  CMD["args"]["key"] in self.nodeData[2].keys() else 0,
+                     "value" : self.nodeData[2][CMD["args"]["key"]] if  CMD["args"]["key"] in self.nodeData[2].keys() else None,
                      "val_exists" : CMD["args"]["key"] in self.nodeData[2].keys() 
                 }
             }
-            self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
+
+            self.Send_Command((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
             self.NB_GET +=1 # statistics
         else:
             # send the cmd to successor 
-            self.send_cmd(self.nodeSucc[0:2],CMD)
+            self.Send_Command(self.nodeSucc[0:2],CMD)
             self.NB_GET +=1 # statistics
         
 
@@ -289,23 +293,26 @@ class Node():
         }
         self.on_put(CMD)
 
-    # the node will try to get the value of Dest node
     def on_put(self, CMD):
-        # check if i am the responsible
+
+        # vérifier si je suis le responsable
         if self.is_between(CMD["args"]["key"],self.nodePred[2]+1, self.nodeID):
-            # I am the responsible so find the value in my data and change it
+
+            #Je suis le resp, trouver la valeur dans de mes données et la modifier
             self.nodeData[2][CMD["args"]["key"]] = CMD["args"]["value"]
+            # Réponse à un put. Le nœud cible va répondre en direct au nœud d’origine avec l’idUniq pour lui accuser réception de son put.
             send_CMD = { 
                 "cmd": ACK,
                 "args" : {
-                     "id": CMD["args"]["id"]
+                     "ok ":"ok",
+                     "idUniq": CMD["args"]["id"]
                 }
             }
-            self.send_cmd((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
+            self.Send_Command((CMD["args"]["host"]["IP"],CMD["args"]["host"]["port"]),send_CMD)
             self.NB_PUT +=1 # statistics
         else:
-            # send the cmd to successor 
-            self.send_cmd(self.nodeSucc[0:2],CMD)
+            # transmettre au succ
+            self.Send_Command(self.nodeSucc[0:2],CMD)
             self.NB_PUT +=1 # statistics
 
     def get_stats(self):
@@ -318,11 +325,11 @@ class Node():
                     "idNode": self.nodeID 
                 }, 
                 "nb_get": self.NB_GET, 
-                "nb_put": self.NB_PUT, 
+                "NB_PUT": self.NB_PUT, 
                 "NB_JOIN": self.NB_JOIN
             }
         }
-        self.send_cmd(self.nodePred[0:2],CMD)
+        self.Send_Command(self.nodePred[0:2],CMD)
 
     #handle the commands coming to this node
     def handle_Node(self,conn,addr):
@@ -330,6 +337,7 @@ class Node():
         print(" received: ------------------------")
         print(msg)
         print("-----------------------------------")
+        
         if msg["cmd"] == JOIN:
             self.on_join(msg)
         elif  msg["cmd"] == GET:
@@ -342,32 +350,30 @@ class Node():
         elif msg["cmd"] == PUT:
             self.on_put(msg)
         elif msg["cmd"] == ACK:
-            #chek if the same identif then delete it fromwait queue
-            # self.puts_sent.remove(msg["args"]["id"])²
-            print("put msg with id "+ str(msg["args"]["id"])+" is successufly received")
+            print("put msg with id "+ str(msg["args"]["idUniq"])+" is successufly received")
         elif msg["cmd"] == UPDATE:
-            # in the cercle version we only change the predecessor
+            # dans cette version on change uniquement le predecesseur 
             # une fois le noeud est inserer , je met a jour la TV de mon predecesseur,
             self.nodeSucc = (msg["args"]["src"]["IP"], msg["args"]["src"]["port"], msg["args"]["src"]["idNode"])
         elif msg["cmd"] == STATS:
             #if stats returns to the node that send the stats cmd the print results
             if self.nodeID == msg["args"]["source"]["idNode"]:
                 print("statistics :")
-                print("nomber of gets : "+ str(msg["args"]["nb_get"]))
-                print("nomber of puts : "+ str(msg["args"]["nb_put"]))
-                print("nomber of others : "+ str(msg["args"]["NB_JOIN"]))
+                print("nombre de gets : "+ str(msg["args"]["nb_get"]))
+                print("nombre de puts : "+ str(msg["args"]["NB_PUT"]))
+                print("nombre de joins : "+ str(msg["args"]["NB_JOIN"]))
             else:
                 msg["args"]["nb_get"] += self.NB_GET 
-                msg["args"]["nb_put"] += self.NB_PUT 
+                msg["args"]["NB_PUT"] += self.NB_PUT 
                 msg["args"]["NB_JOIN"] += self.NB_JOIN
-                self.send_cmd((self.nodePred[0:2]),msg)
+                self.Send_Command((self.nodePred[0:2]),msg)
 
         elif msg["cmd"] == PRINT:
             print("node info : "+ str(self.nodeIP_adress)+" "+ str(self.nodePort)+" "+ str(self.nodeID))
-            print("node prec : "+ str(self.nodePred))
-            print("node succ : "+ str(self.nodeSucc))
-            print("nodes keys that the node have from "+str(self.nodeData[0])+ " to "+str(self.nodeData[1]))
-            print("data list : "+ str(self.nodeData[2]))
+            print("predecesseur : "+ str(self.nodePred))
+            print("successeur : "+ str(self.nodeSucc))
+            print("le noeud est resp des cles allant de "+str(self.nodeData[0])+ " jusqu'a "+str(self.nodeData[1]))
+            print("liste des data: "+ str(self.nodeData[2]))
 
         elif msg["cmd"] == "send_"+GET:
             self.GET_CMD(msg["args"]["key"])
